@@ -1,8 +1,8 @@
 /- The `gappa` tactic, used for finding provable bounds on real-valued expressions. -/
 import DSLean.Command
 import Mathlib.Algebra.Order.Round
-import Mathlib.Data.Real.Basic
-import Mathlib.Data.Real.Sqrt
+import Mathlib.Basic.Real.Basic
+import Mathlib.Analysis.Real.Sqrt
 import Mathlib.Tactic
 
 set_option linter.unusedVariables false set_option linter.unusedTactic false set_option linter.unreachableTactic false
