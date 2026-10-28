@@ -174,8 +174,12 @@ elab "gappa" : tactic => do
 
   let input ← postprocess res
 
-  let proof ← fromExternal' `Gappa_output input typ
-  synthesizeSyntheticMVarsNoPostponing
+  -- Info trees off: the `by ...` blocks in here come from the `Gappa_output` rules above, so linters like
+  -- `unnecessarySeqFocus` would otherwise flag them at nonsense positions in the user's file
+  let proof ← withEnableInfoTree false do
+    let proof ← fromExternal' `Gappa_output input typ
+    synthesizeSyntheticMVarsNoPostponing
+    pure proof
   let proof ← instantiateMVars proof
 
   let mvarsToGoals ← proof.traverseAllUnfolding fun e => do
