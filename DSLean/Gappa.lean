@@ -1,5 +1,6 @@
 /- The `gappa` tactic, used for finding provable bounds on real-valued expressions. -/
 import DSLean.Command
+import DSLean.Gappa.Input
 import Mathlib.Algebra.Order.Round
 import Mathlib.Basic.Real.Basic
 import Mathlib.Analysis.Real.Sqrt
@@ -8,24 +9,6 @@ import Mathlib.Tactic
 set_option linter.unusedVariables false set_option linter.unusedTactic false set_option linter.unreachableTactic false
 
 open Lean Meta Elab Term Command Tactic
-
-external Gappa_input where
-  "(" x "+" y ")" <== x + y
-  "(" x "-" y ")" <== x - y
-  "(" x "*" y ")" <== x * y
-  "(" x "/" y ")" <== x / y
-  "sqrt(" x ")" <== Real.sqrt x
-  "-" x <== - (x:Real)
-  "|" x "|" <== abs x
-
-  "(" x "->" y ")" <== x → y
-  "(" x "/\\" y ")" <== x ∧ y
-  "(" x "\\/" y ")" <== x ∨ y
-  "not" x <== ¬ x
-
-  "[" x "," y "]" <== Set.Icc x y
-  x "in" y <== x ∈ y
-  x "=" y <== x = y
 
 /- Gappa's Coq output uses quite a few automation tactics that don't have direct equivalents in Lean, so we recreate them here. -/
 
