@@ -46,6 +46,15 @@ Additionally, depending on which tactics you may want to use, you'll want to ins
 Make sure the default commands to run these programs are available in your environment (`gappa`, `sage`, `macaulay2`), or specify an installation to use by setting the `DSLEAN_GAPPA_PATH`, `DSLEAN_SAGE_PATH`, and/or `DSLEAN_M2_PATH` environment variables (e.g. by adding `export DSLEAN_GAPPA_PATH=/path/to/gappa/executable` to your `.bashrc` file or equivalent). 
 
 
+### Running external tools
+
+`DSLean.Process` runs an external program for a tactic or command. An `ExternalTool` names the
+environment variable of its program and a default (`{ name := "sage", envVar := "DSLEAN_SAGE_PATH",
+default := "sage" }`), and `ExternalTool.run` runs it with a deadline for the whole run, a bound on
+its output, and the elaborator's cancellation token. The program gets its own process group, which
+is ended on every exit path (`SIGTERM`, then `SIGKILL` to the group), so that a hung tool or a
+descendant holding its output cannot hold up Lean.
+
 ### Making a DSL
 
 DSLean's `external` command specifies equivalences between Lean types and external syntax:
