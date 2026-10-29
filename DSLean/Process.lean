@@ -141,12 +141,12 @@ private inductive Awaited (α : Type) where
   | cancelled
 
 /-- Wait for `task` until `deadline` (on `IO.monoMsNow`) without blocking past it, checking the
-cancellation token. -/
+cancellation token first, so that a cancellation is reported even when the task has finished. -/
 private def awaitUntil {α : Type} (task : Task (Except IO.Error α)) (deadline : Nat)
     (token? : Option IO.CancelToken) : IO (Awaited α) := do
   repeat
-    if ← IO.hasFinished task then return .done task.get
     if ← cancelled token? then return .cancelled
+    if ← IO.hasFinished task then return .done task.get
     if (← IO.monoMsNow) > deadline then return .timedOut
     IO.sleep 5
   return .timedOut
@@ -187,6 +187,7 @@ def runProgram (cmd : String) (args : Array String) (stdin : String := "")
     reaped := true
     -- Descendants that still hold the pipes are ended with the group.
     terminateGroup child (reaped := true)
+    if ← cancelled token? then return .error .cancelled
     if let .cancelled ← awaitUntil writer ((← IO.monoMsNow) + 500) token? then
       return .error .cancelled
     let grace := (← IO.monoMsNow) + 2000

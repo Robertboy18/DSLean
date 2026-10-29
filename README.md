@@ -50,11 +50,12 @@ Make sure the default commands to run these programs are available in your envir
 
 `DSLean.Process` runs an external program for a tactic or command. An `ExternalTool` names the
 environment variable of its program and a default (`{ name := "sage", envVar := "DSLEAN_SAGE_PATH",
-default := "sage" }`), and `ExternalTool.run` runs it with a deadline for the whole run, a bound on
-its output, and the elaborator's cancellation token. The program gets its own process group, which
-is ended on every exit path (`SIGTERM`, then `SIGKILL` to the group), so that a hung tool, or a
-descendant in its group holding its output, cannot hold up Lean for longer than the deadline and
-a few seconds of cleanup.
+default := "sage" }`), and `ExternalTool.run` runs it with a deadline, a bound on its output, and
+the elaborator's cancellation token. The program gets its own process group, which is signalled on
+every exit path (`SIGTERM`, then `SIGKILL` to the group through the system `kill`), so that a hung
+tool, or a descendant in its group holding its output, holds up Lean for the deadline and a few
+seconds of cleanup at most. A descendant that leaves the group, or a process in an uninterruptible
+wait, is not covered.
 
 ### Making a DSL
 
