@@ -23,8 +23,8 @@ def ExternalTool.program (tool : ExternalTool) : IO String :=
 
 /-- The limits of one run. -/
 structure RunLimits where
-  /-- Deadline of the run, from the start of the program, in milliseconds. Ending the process
-  group and draining the pipes afterwards take at most about two more seconds. -/
+  /-- Deadline of the program, from its start, in milliseconds. Ending its process group and
+  draining the pipes afterwards add a bounded cleanup time of a few seconds. -/
   timeoutMs : Nat := 120000
   /-- Largest standard output, in bytes; a longer one fails the run. -/
   maxOutputBytes : Nat := 16 * 1024 * 1024
@@ -39,7 +39,7 @@ structure RunResult where
   exitCode : UInt32
   /-- Its standard output. -/
   stdout : String
-  /-- The first `maxErrorBytes` bytes of its standard error. -/
+  /-- The first `maxErrorBytes` bytes of its standard error (empty if they are not UTF-8). -/
   stderr : String
   /-- Whether the standard error was longer than `maxErrorBytes` bytes. -/
   stderrTruncated : Bool
@@ -51,7 +51,8 @@ inductive RunFailure where
   | unavailable (reason : String)
   /-- The program ran past the deadline; its process group was ended. -/
   | timeout (milliseconds : Nat)
-  /-- The cancellation token was set; the process group was ended. -/
+  /-- The cancellation token was set, while the program ran or while its output was awaited;
+  the process group was ended. -/
   | cancelled
   /-- The standard output was longer than the bound. -/
   | overflow (bytes : Nat)
@@ -59,7 +60,8 @@ inductive RunFailure where
   | notUTF8
   /-- The standard output was still open two seconds after the process group was ended. -/
   | unclosed
-  /-- Reading or writing a pipe, or waiting for the program, failed. -/
+  /-- Reading a pipe, or waiting for the program, failed. (A failed write of the input is not
+  reported: the program has then stopped reading it.) -/
   | io (error : String)
 deriving Inhabited, Repr
 
@@ -132,15 +134,22 @@ private def cancelled (token? : Option IO.CancelToken) : IO Bool := do
   | some token => token.isSet
   | none => return false
 
-/-- Wait for `task` until `deadline` (on `IO.monoMsNow`) without blocking past it; `none` on
-timeout. -/
-private def awaitUntil {α : Type} (task : Task (Except IO.Error α)) (deadline : Nat) :
-    IO (Option (Except IO.Error α)) := do
+/-- How a wait for a task ended. -/
+private inductive Awaited (α : Type) where
+  | done (result : Except IO.Error α)
+  | timedOut
+  | cancelled
+
+/-- Wait for `task` until `deadline` (on `IO.monoMsNow`) without blocking past it, checking the
+cancellation token. -/
+private def awaitUntil {α : Type} (task : Task (Except IO.Error α)) (deadline : Nat)
+    (token? : Option IO.CancelToken) : IO (Awaited α) := do
   repeat
-    if ← IO.hasFinished task then return some task.get
-    if (← IO.monoMsNow) > deadline then return none
+    if ← IO.hasFinished task then return .done task.get
+    if ← cancelled token? then return .cancelled
+    if (← IO.monoMsNow) > deadline then return .timedOut
     IO.sleep 5
-  return none
+  return .timedOut
 
 /-- Run `cmd` with `args`, `stdin` on its standard input, within `limits`. The program is
 started in its own session and process group. Its standard input is written and closed by a
@@ -148,10 +157,12 @@ task of its own (the program sees the end of its input), and its standard output
 read by tasks of their own, at the same time, to their end. While the program runs, the
 deadline and the cancellation token `token?` are checked every 10 ms. Once the program has
 exited, its process group is ended, so that descendants holding the pipes go too, and the
-output is awaited for at most two more seconds. On every other exit path (timeout,
-cancellation, error) the group is ended as well. Not covered: a descendant that leaves the group
-(by calling `setsid` itself) and keeps a pipe open leaves its reader task blocked until it exits,
-which the run does not wait for; a process in an uninterruptible wait may stay unreaped. -/
+output is awaited for at most two more seconds, the token still checked. On every other exit
+path (timeout, cancellation, error) the group is ended as well: `SIGTERM`, then `SIGKILL`
+through the system `kill` (without one, only the `SIGTERM`). Not covered: a descendant that
+leaves the group (by calling `setsid` itself) and keeps a pipe open leaves its reader task
+blocked until it exits, which the run does not wait for; a process in an uninterruptible wait
+may stay unreaped. -/
 def runProgram (cmd : String) (args : Array String) (stdin : String := "")
     (limits : RunLimits := {}) (token? : Option IO.CancelToken := none) :
     IO (Except RunFailure RunResult) := do
@@ -176,16 +187,19 @@ def runProgram (cmd : String) (args : Array String) (stdin : String := "")
     reaped := true
     -- Descendants that still hold the pipes are ended with the group.
     terminateGroup child (reaped := true)
-    discard <| awaitUntil writer ((← IO.monoMsNow) + 500)
+    if let .cancelled ← awaitUntil writer ((← IO.monoMsNow) + 500) token? then
+      return .error .cancelled
     let grace := (← IO.monoMsNow) + 2000
-    let (bytes, overflow) ← match ← awaitUntil output grace with
-      | some (.ok result) => pure result
-      | some (.error error) => return .error (.io (toString error))
-      | none => return .error .unclosed
-    let (errorBytes, stderrTruncated) ← match ← awaitUntil errors grace with
-      | some (.ok result) => pure result
-      | some (.error error) => return .error (.io (toString error))
-      | none => return .error .unclosed
+    let (bytes, overflow) ← match ← awaitUntil output grace token? with
+      | .done (.ok result) => pure result
+      | .done (.error error) => return .error (.io (toString error))
+      | .cancelled => return .error .cancelled
+      | .timedOut => return .error .unclosed
+    let (errorBytes, stderrTruncated) ← match ← awaitUntil errors grace token? with
+      | .done (.ok result) => pure result
+      | .done (.error error) => return .error (.io (toString error))
+      | .cancelled => return .error .cancelled
+      | .timedOut => return .error .unclosed
     if overflow then return .error (.overflow limits.maxOutputBytes)
     let some stdout := String.fromUTF8? bytes | return .error .notUTF8
     let stderr := (String.fromUTF8? errorBytes).getD ""

@@ -52,8 +52,9 @@ Make sure the default commands to run these programs are available in your envir
 environment variable of its program and a default (`{ name := "sage", envVar := "DSLEAN_SAGE_PATH",
 default := "sage" }`), and `ExternalTool.run` runs it with a deadline for the whole run, a bound on
 its output, and the elaborator's cancellation token. The program gets its own process group, which
-is ended on every exit path (`SIGTERM`, then `SIGKILL` to the group), so that a hung tool or a
-descendant holding its output cannot hold up Lean.
+is ended on every exit path (`SIGTERM`, then `SIGKILL` to the group), so that a hung tool, or a
+descendant in its group holding its output, cannot hold up Lean for longer than the deadline and
+a few seconds of cleanup.
 
 ### Making a DSL
 
